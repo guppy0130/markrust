@@ -99,9 +99,9 @@ pub fn render(
             }
         }
         NodeValue::Code(code_span) => {
-            write("{{ monospaced }}", writer);
+            write("{{", writer);
             write(&String::from_utf8(code_span.to_vec()).unwrap(), writer);
-            write("{{ monospaced }}", writer);
+            write("}}", writer);
         }
         NodeValue::Emph => {
             write("_", writer);
@@ -263,7 +263,7 @@ fn test_code_span() {
     ))));
     render(&node, &mut bullet_stack, &mut false, &mut output);
     assert_eq!(
-        "{{ monospaced }}monospaced content{{ monospaced }}",
+        "{{monospaced content}}",
         String::from_utf8(output).unwrap()
     );
 }
