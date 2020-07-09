@@ -1,0 +1,524 @@
+extern crate pulldown_cmark;
+use pulldown_cmark::*;
+
+use std::io::{self, Write};
+
+struct JiraWriter<I, W> {
+    iter: I,
+    writer: W,
+    // if we ended on a newline so we can fix newlines for lists
+    end_newline: bool,
+    // if we're on a table header cell
+    table_header: bool,
+    // what bullets we're working with
+    bullet_stack: Vec<u8>,
+    // if we come across a link, set this to true so we can capture the incoming string in the
+    // first half of the link
+    link: bool,
+    // if we're working with an image, we'll need to keep track of states
+    image: bool,
+    image_text: bool,
+    // must ensure space after inline code end curly brace
+    inline_code: bool,
+}
+
+impl<'a, I, W> JiraWriter<I, W>
+where
+    I: Iterator<Item = Event<'a>>,
+    W: Write,
+{
+    /// return a new JiraWriter
+    ///
+    /// # Arguments
+    ///
+    /// * `iter` - iterator of elements provided by `pulldowm_cmark`
+    /// * `writer` - something implementing Write to write output to
+    fn new(iter: I, writer: W) -> Self {
+        Self {
+            iter,
+            writer,
+            end_newline: true,
+            table_header: false,
+            bullet_stack: vec![],
+            link: false,
+            image: false,
+            image_text: false,
+            inline_code: false,
+        }
+    }
+
+    /// Writes `s` to underlying `writer`.
+    /// Sets `self.end_newline` to true if `s` ends in a newline.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - string to write
+    fn write(&mut self, s: &str) -> io::Result<()> {
+        self.end_newline = s.ends_with("\n");
+        self.writer.write_all(s.as_bytes())
+    }
+
+    /// Writes a newline to underlying `writer`.
+    fn write_newline(&mut self) -> io::Result<()> {
+        self.write("\n")
+    }
+
+    /// Replace curly braces so macros don't explode
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - string to check
+    ///
+    /// # Returns
+    ///
+    /// * `s` - string with {} replaced with HTML equivalent
+    fn write_escaped(&mut self, s: &str) -> io::Result<()> {
+        self.write(&s.replace("{", "&#123;").replace("}", "&#125;"))
+    }
+
+    /// Main part of the parser, outputting to underlying `writer`.
+    ///
+    /// Passes start/end tags out to `start_tag` and `end_tag`, respectively.
+    /// Writes out the rest of the inline content as necessary.
+    /// Does not render raw HTML or footnote references.
+    fn run(&mut self) -> io::Result<()> {
+        // using this form means you have to have the Ok(()) at the end?
+        while let Some(event) = self.iter.next() {
+            match event {
+                Event::Start(tag) => {
+                    self.start_tag(tag)?;
+                }
+                Event::End(tag) => {
+                    self.end_tag(tag)?;
+                }
+                Event::Text(text) => {
+                    if self.image {
+                        self.write("|title=\"")?;
+                    }
+                    if self.inline_code && !text.starts_with(" ") {
+                        self.write(" ")?;
+                        self.inline_code = false;
+                    }
+                    self.write(&text)?;
+                    if self.image {
+                        self.write("\"")?;
+                        self.image_text = true;
+                    }
+                }
+                Event::Code(text) => {
+                    self.write("{{")?;
+                    self.write_escaped(&text)?;
+                    self.write("}}")?;
+                    self.inline_code = true;
+                }
+                Event::SoftBreak => {
+                    self.write_newline()?;
+                }
+                Event::HardBreak => {
+                    self.write_newline()?;
+                }
+                Event::Rule => {
+                    self.write_newline()?;
+                    self.write("----")?;
+                    self.write_newline()?;
+                }
+                Event::TaskListMarker(_) => {
+                    self.write_newline()?;
+                    self.write("[] ")?;
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handles opening tags
+    /// Since Jira/Confluence doesn't have table alignment built in, we skip that here
+    /// Also, skip starting numbered lists at a non-one value...
+    ///
+    /// # Arguments
+    ///
+    /// * `tag` - tag to open
+    fn start_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
+        match tag {
+            Tag::Paragraph => self.write_newline(),
+            Tag::Heading(level) => {
+                self.write_newline()?;
+                self.write(&format!("h{}. ", &level))
+            }
+            Tag::BlockQuote => {
+                self.write_newline()?;
+                self.write("{quote}")
+            }
+            Tag::CodeBlock(code_block_kind) => {
+                self.write_newline()?;
+                self.write("{code")?;
+                match code_block_kind {
+                    CodeBlockKind::Fenced(language) => {
+                        self.write(&format!(":language={}", &language))?;
+                    }
+                    _ => (),
+                }
+                self.write("}")?;
+                self.write_newline()
+            }
+            Tag::List(first_number) => {
+                if first_number.is_some() {
+                    self.bullet_stack.push(b'#');
+                } else {
+                    self.bullet_stack.push(b'*');
+                }
+                self.write_newline()
+            }
+            Tag::Item => {
+                if !self.end_newline {
+                    self.write_newline()?;
+                }
+                self.write(
+                    &(String::from_utf8(self.bullet_stack.to_vec()).unwrap() + &String::from(" ")),
+                )
+            }
+            Tag::TableHead => {
+                self.table_header = true;
+                self.write_newline()?;
+                self.write("||")
+            }
+            Tag::TableRow => {
+                if self.table_header {
+                    self.write("||")
+                } else {
+                    self.write("|")
+                }
+            }
+            Tag::Emphasis => self.write("_"),
+            Tag::Strong => self.write("*"),
+            Tag::Strikethrough => self.write("-"),
+            Tag::Link(_, _, _) => {
+                self.link = true;
+                self.write("[")
+            }
+            Tag::Image(_, destination, _) => {
+                self.image = true;
+                self.write("!")?;
+                self.write(&format!("{}", &destination))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Handles closing tags
+    ///
+    /// # Arguments
+    ///
+    /// * `tag` - tag to close
+    fn end_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
+        match tag {
+            Tag::Paragraph => self.write_newline(),
+            Tag::Heading(_) => self.write_newline(),
+            Tag::BlockQuote => {
+                self.write("{quote}")?;
+                self.write_newline()
+            }
+            Tag::CodeBlock(_) => {
+                self.write("{code}")?;
+                self.write_newline()
+            }
+            Tag::List(_) => {
+                self.bullet_stack.pop();
+                if self.bullet_stack.is_empty() {
+                    self.write_newline()
+                } else {
+                    Ok(())
+                }
+            }
+            Tag::TableHead => {
+                self.table_header = false;
+                self.write_newline()
+            }
+            Tag::TableRow => self.write_newline(),
+            Tag::TableCell => {
+                if self.table_header {
+                    self.write("||")
+                } else {
+                    self.write("|")
+                }
+            }
+            Tag::Emphasis => self.write("_"),
+            Tag::Strong => self.write("*"),
+            Tag::Strikethrough => self.write("-"),
+            Tag::Link(_, destination, _) => {
+                if self.link {
+                    self.write("|")?;
+                }
+                self.link = false;
+                self.write(&format!("{}]", destination))
+            }
+            Tag::Image(_, _, alt) => {
+                if self.image_text {
+                    self.write(",")?;
+                } else {
+                    self.write("|")?;
+                }
+                self.write(&format!("alt=\"{}\"", alt))?;
+                self.image = false;
+                self.image_text = false;
+                self.write("!")
+            }
+            // handle Item
+            _ => Ok(()),
+        }
+    }
+}
+
+pub fn write_jira<'a, I, W>(writer: W, iter: I) -> io::Result<()>
+where
+    I: Iterator<Item = Event<'a>>,
+    W: Write,
+{
+    JiraWriter::new(iter, writer).run()
+}
+
+#[cfg(test)]
+#[test]
+fn test_headings() {
+    let input = "# hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!("\nh1. hello world\n", String::from_utf8(output).unwrap());
+
+    let input = "## hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               h2. hello world\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_blockquote() {
+    let input = "> hello blockquote";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               {quote}\n\
+               hello blockquote\n\
+               {quote}\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_codeblock() {
+    let input = "\
+    ```java\n\
+    System.out.println(\"hello world\")\n\
+    ```";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               {code:language=java}\n\
+               System.out.println(\"hello world\")\n\
+               {code}\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_unordered_list() {
+    let input = "\
+    * item one\n\
+    * item two\n\
+    * item three";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               * item one\n\
+               * item two\n\
+               * item three\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_nested_unordered_list() {
+    let input = "\
+    * item one\n\
+    * item two\n\
+    \t* nested item one\n\
+    \t* nested item two\n\
+    * item three";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               * item one\n\
+               * item two\n\
+               ** nested item one\n\
+               ** nested item two\n\
+               * item three\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_nested_ordered_in_unordered_list() {
+    let input = "\
+    * item one\n\
+    * item two\n\
+    \t1. nested item one\n\
+    \t2. nested item two\n\
+    * item three";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               * item one\n\
+               * item two\n\
+               *# nested item one\n\
+               *# nested item two\n\
+               * item three\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_ordered_list() {
+    let input = "\
+    1. item one\n\
+    2. item two\n\
+    3. item three";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               # item one\n\
+               # item two\n\
+               # item three\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_table() {
+    let input = "\
+    | header 1 | header 2 |\n\
+    |----------|----------|\n\
+    | item 1   | item 2   |";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               ||header 1||header 2||\n\
+               |item 1|item 2|\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_emphasis() {
+    let input = "this is _italics_ in a string";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\nthis is _italics_ in a string\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_bold() {
+    let input = "this is **bold** in a string";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\nthis is *bold* in a string\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_bold_italics() {
+    let input = "this is _**bold italics**_ in a string";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\nthis is _*bold italics*_ in a string\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_strikethrough() {
+    let input = "this is ~~strikethrough~~ in a string";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\nthis is -strikethrough- in a string\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_link() {
+    let input = "[link](https://example.com)";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n[link|https://example.com]\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_image() {
+    let input = "![img title](https://example.com/image.jpg)";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n!https://example.com/image.jpg|title=\"img title\",alt=\"\"!\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_inline_code() {
+    let input = "some `inline code` here";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\nsome {{inline code}} here\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_horizontal_rule() {
+    let input = "---";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!("\n----\n", String::from_utf8(output).unwrap());
+}
+
+#[ignore] // doesn't work yet, weird parsing issues
+#[test]
+fn test_task_list() {
+    let input = "\
+    - [ ] task one\n\
+    - [ ] task two\n\
+    - [x] completed task";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               [] task one\n\
+               [] task two\n\
+               [x] completed task\n",
+        String::from_utf8(output).unwrap()
+    );
+}
