@@ -279,6 +279,13 @@ where
     JiraWriter::new(iter, writer).run()
 }
 
+pub fn write_toc<'a, W>(mut writer: W) -> io::Result<()>
+where
+    W: Write,
+{
+    return write!(&mut writer, "{{toc}}\n\n");
+}
+
 #[cfg(test)]
 #[test]
 fn test_headings() {

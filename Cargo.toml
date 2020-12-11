@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 pulldown-cmark = { version = "0.7.2", default-features = false, features = ["simd"] }
+clap = "2.33.3"
