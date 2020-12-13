@@ -33,7 +33,7 @@ fn main() -> io::Result<()> {
                 .multiple(false)
                 .takes_value(true)
                 .require_equals(true) // so negative numbers aren't flags
-                .required(false)
+                .required(false),
         )
         .arg(
             Arg::with_name("input")

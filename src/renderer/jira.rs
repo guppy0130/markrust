@@ -2,8 +2,8 @@ extern crate pulldown_cmark;
 use pulldown_cmark::*;
 
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::convert::TryFrom;
+use std::io::{self, Write};
 
 struct JiraWriter<I, W> {
     iter: I,
