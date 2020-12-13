@@ -3,6 +3,7 @@ use pulldown_cmark::*;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::convert::TryFrom;
 
 struct JiraWriter<I, W> {
     iter: I,
@@ -21,7 +22,10 @@ struct JiraWriter<I, W> {
     image_text: bool,
     // must ensure space after inline code end curly brace
     inline_code: bool,
+    // map between markdown/confluence code block langs
     lang_map: HashMap<String, String>,
+    // add modify_headers to header level
+    modify_headers: i8,
 }
 
 /// builds the language mapper
@@ -120,7 +124,7 @@ where
     ///
     /// * `iter` - iterator of elements provided by `pulldowm_cmark`
     /// * `writer` - something implementing Write to write output to
-    fn new(iter: I, writer: W) -> Self {
+    fn new(iter: I, writer: W, modify_headers: i8) -> Self {
         // confluence/jira only implements the following language highlighting
         // doing this now means the cost is 1 instead of N
         Self {
@@ -134,6 +138,7 @@ where
             image_text: false,
             inline_code: false,
             lang_map: build_lang_map(),
+            modify_headers: modify_headers,
         }
     }
 
@@ -235,7 +240,19 @@ where
             Tag::Paragraph => self.write_newline(),
             Tag::Heading(level) => {
                 self.write_newline()?;
-                self.write(&format!("h{}. ", &level))
+                let parsed_level = i8::try_from(level).unwrap() + self.modify_headers;
+                if parsed_level > 0 {
+                    if parsed_level < 7 {
+                        // valid headers are between 0..=6
+                        self.write(&format!("h{}. ", parsed_level))
+                    } else {
+                        // if the header is > 6, then just treat it as regular text.
+                        Ok(())
+                    }
+                } else {
+                    self.iter.next(); // skip header contents if header level < 0
+                    Ok(())
+                }
             }
             Tag::BlockQuote => {
                 self.write_newline()?;
@@ -367,12 +384,12 @@ where
     }
 }
 
-pub fn write_jira<'a, I, W>(writer: W, iter: I) -> io::Result<()>
+pub fn write_jira<'a, I, W>(writer: W, iter: I, modify_headers: i8) -> io::Result<()>
 where
     I: Iterator<Item = Event<'a>>,
     W: Write,
 {
-    JiraWriter::new(iter, writer).run()
+    JiraWriter::new(iter, writer, modify_headers).run()
 }
 
 pub fn write_toc<'a, W>(mut writer: W) -> io::Result<()>
@@ -387,12 +404,12 @@ where
 fn test_headings() {
     let input = "# hello world";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!("\nh1. hello world\n", String::from_utf8(output).unwrap());
 
     let input = "## hello world";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                h2. hello world\n",
@@ -404,7 +421,7 @@ fn test_headings() {
 fn test_blockquote() {
     let input = "> hello blockquote";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                {quote}\n\
@@ -421,7 +438,7 @@ fn test_codeblock() {
     System.out.println(\"hello world\")\n\
     ```";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                {code:language=java}\n\
@@ -439,7 +456,7 @@ fn test_console_codeblock() {
     should be bash\n\
     ```";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                {code:language=bash}\n\
@@ -457,7 +474,7 @@ fn test_unknown_codeblock() {
     should be text\n\
     ```";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                {code:language=text}\n\
@@ -474,7 +491,7 @@ fn test_unordered_list() {
     * item two\n\
     * item three";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                * item one\n\
@@ -493,7 +510,7 @@ fn test_nested_unordered_list() {
     \t* nested item two\n\
     * item three";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                * item one\n\
@@ -514,7 +531,7 @@ fn test_nested_ordered_in_unordered_list() {
     \t2. nested item two\n\
     * item three";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                * item one\n\
@@ -533,7 +550,7 @@ fn test_ordered_list() {
     2. item two\n\
     3. item three";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                # item one\n\
@@ -550,7 +567,7 @@ fn test_table() {
     |----------|----------|\n\
     | item 1   | item 2   |";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                ||header 1||header 2||\n\
@@ -563,7 +580,7 @@ fn test_table() {
 fn test_emphasis() {
     let input = "this is _italics_ in a string";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\nthis is _italics_ in a string\n",
         String::from_utf8(output).unwrap()
@@ -574,7 +591,7 @@ fn test_emphasis() {
 fn test_bold() {
     let input = "this is **bold** in a string";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\nthis is *bold* in a string\n",
         String::from_utf8(output).unwrap()
@@ -585,7 +602,7 @@ fn test_bold() {
 fn test_bold_italics() {
     let input = "this is _**bold italics**_ in a string";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\nthis is _*bold italics*_ in a string\n",
         String::from_utf8(output).unwrap()
@@ -596,7 +613,7 @@ fn test_bold_italics() {
 fn test_strikethrough() {
     let input = "this is ~~strikethrough~~ in a string";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\nthis is -strikethrough- in a string\n",
         String::from_utf8(output).unwrap()
@@ -607,7 +624,7 @@ fn test_strikethrough() {
 fn test_link() {
     let input = "[link](https://example.com)";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n[link|https://example.com]\n",
         String::from_utf8(output).unwrap()
@@ -618,7 +635,7 @@ fn test_link() {
 fn test_image() {
     let input = "![img title](https://example.com/image.jpg)";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n!https://example.com/image.jpg|title=\"img title\",alt=\"\"!\n",
         String::from_utf8(output).unwrap()
@@ -629,7 +646,7 @@ fn test_image() {
 fn test_inline_code() {
     let input = "some `inline code` here";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\nsome {{inline code}} here\n",
         String::from_utf8(output).unwrap()
@@ -640,7 +657,7 @@ fn test_inline_code() {
 fn test_horizontal_rule() {
     let input = "---";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!("\n----\n", String::from_utf8(output).unwrap());
 }
 
@@ -652,7 +669,7 @@ fn test_task_list() {
     * [ ] task two\n\
     * [x] completed task";
     let mut output = Vec::new();
-    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n\
                [] task one\n\
@@ -660,4 +677,35 @@ fn test_task_list() {
                [x] completed task\n",
         String::from_utf8(output).unwrap()
     );
+}
+
+#[test]
+fn test_modified_headings() {
+    // header level 1 + 1 = 2
+    let input = "# hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 1).is_ok());
+    assert_eq!("\nh2. hello world\n", String::from_utf8(output).unwrap());
+
+    // header level 2 - 1 = 1
+    let input = "## hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
+    assert_eq!(
+        "\n\
+               h1. hello world\n",
+        String::from_utf8(output).unwrap()
+    );
+
+    // header level 1 - 1 = 0
+    let input = "# hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
+    assert_eq!("\n\n", String::from_utf8(output).unwrap());
+
+    // header level 6 + 1 = 7
+    let input = "###### hello world";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 1).is_ok());
+    assert_eq!("\nhello world\n", String::from_utf8(output).unwrap());
 }

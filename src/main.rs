@@ -26,6 +26,16 @@ fn main() -> io::Result<()> {
                 .required(false),
         )
         .arg(
+            Arg::with_name("modify_headers")
+                .help("add N to each header level")
+                .long("modify-headers")
+                .short("m")
+                .multiple(false)
+                .takes_value(true)
+                .require_equals(true) // so negative numbers aren't flags
+                .required(false)
+        )
+        .arg(
             Arg::with_name("input")
                 .help("FILE input, or empty for stdin")
                 .long("input")
@@ -73,7 +83,8 @@ fn main() -> io::Result<()> {
         jira::write_toc(&mut output_writer)?;
     }
 
-    jira::write_jira(&mut output_writer, parser)?;
+    let modify_headers = value_t!(args.value_of("modify_headers"), i8).unwrap_or(0);
+    jira::write_jira(&mut output_writer, parser, modify_headers)?;
 
     // flush before drop
     output_writer.flush()
