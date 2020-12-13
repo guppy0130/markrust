@@ -6,12 +6,12 @@ Convert from Markdown to Atlassian markup.
 
 ```console
 $ ./markrust -h
-markrust 1.0.0
+markrust 1.1.0
 guppy0130 <guppy0130@yahoo.com>
 
 
 USAGE:
-    markrus [FLAGS] [OPTIONS] [ARGS]
+    markrust [FLAGS] [OPTIONS] [ARGS]
 
 FLAGS:
     -h, --help       Prints help information
