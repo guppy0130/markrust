@@ -73,5 +73,8 @@ fn main() -> io::Result<()> {
         jira::write_toc(&mut output_writer)?;
     }
 
-    jira::write_jira(&mut output_writer, parser)
+    jira::write_jira(&mut output_writer, parser)?;
+
+    // flush before drop
+    output_writer.flush()
 }

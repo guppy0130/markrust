@@ -1,6 +1,7 @@
 extern crate pulldown_cmark;
 use pulldown_cmark::*;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 struct JiraWriter<I, W> {
@@ -20,6 +21,92 @@ struct JiraWriter<I, W> {
     image_text: bool,
     // must ensure space after inline code end curly brace
     inline_code: bool,
+    lang_map: HashMap<String, String>,
+}
+
+/// builds the language mapper
+///
+/// # Returns
+///
+/// * `lang_map` - HashMap<String, String> from markdown to confluence-supported code block langs
+fn build_lang_map() -> HashMap<String, String> {
+    let mut lang_map = HashMap::new();
+    let approved_langs = [
+        "actionscript3",
+        "applescript",
+        "bash",
+        "c#",
+        "c++",
+        "css",
+        "coldfusion",
+        "delphi",
+        "diff",
+        "erlang",
+        "groovy",
+        "xml",
+        "java",
+        "jfx",
+        "javascript",
+        "php",
+        "text",
+        "powershell",
+        "python",
+        "ruby",
+        "sql",
+        "sass",
+        "scala",
+        "vb",
+        "yaml",
+    ];
+    for &lang in &approved_langs {
+        // add map from self to self
+        lang_map.insert(lang.to_string(), lang.to_string());
+    }
+
+    /// build aliases/mappings from markdown -> confluence
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_map` - the language map
+    /// * `approved_lang` - the confluence keyword
+    /// * `aliases` - vec![] of markdown keywords
+    fn build_aliases(
+        sub_map: &mut std::collections::HashMap<std::string::String, std::string::String>,
+        approved_lang: &str,
+        aliases: Vec<&str>,
+    ) {
+        for alias in aliases {
+            sub_map.insert(alias.to_string(), approved_lang.to_string());
+        }
+    }
+
+    // aliases and mapping between languages
+    // honestly, there should be a better way of doing this...
+    build_aliases(&mut lang_map, "actionscript3", vec!["as3", "actionscript"]);
+    build_aliases(&mut lang_map, "applescript", vec!["osascript"]);
+    build_aliases(&mut lang_map, "bash", vec!["console", "shell", "zsh", "sh"]);
+    build_aliases(&mut lang_map, "c#", vec!["csharp"]);
+    build_aliases(&mut lang_map, "c++", vec!["cpp"]);
+    build_aliases(
+        &mut lang_map,
+        "coldfusion",
+        vec!["cfm", "cfml", "coldfusion html"],
+    );
+    build_aliases(&mut lang_map, "delphi", vec!["pascal", "objectpascal"]);
+    build_aliases(&mut lang_map, "diff", vec!["udiff"]);
+    build_aliases(&mut lang_map, "xml", vec!["html"]);
+    build_aliases(&mut lang_map, "jfx", vec!["java fx"]);
+    build_aliases(&mut lang_map, "javascript", vec!["js", "node"]);
+    build_aliases(&mut lang_map, "php", vec!["inc"]);
+    build_aliases(&mut lang_map, "powershell", vec!["posh"]);
+    build_aliases(
+        &mut lang_map,
+        "ruby",
+        vec!["jruby", "macruby", "rake", "rb", "rbx"],
+    );
+    build_aliases(&mut lang_map, "sass", vec!["scss", "less", "stylus"]);
+    build_aliases(&mut lang_map, "vb", vec!["visual basic", "vb.net", "vbnet"]);
+    return lang_map;
 }
 
 impl<'a, I, W> JiraWriter<I, W>
@@ -34,6 +121,8 @@ where
     /// * `iter` - iterator of elements provided by `pulldowm_cmark`
     /// * `writer` - something implementing Write to write output to
     fn new(iter: I, writer: W) -> Self {
+        // confluence/jira only implements the following language highlighting
+        // doing this now means the cost is 1 instead of N
         Self {
             iter,
             writer,
@@ -44,6 +133,7 @@ where
             image: false,
             image_text: false,
             inline_code: false,
+            lang_map: build_lang_map(),
         }
     }
 
@@ -156,9 +246,15 @@ where
                 self.write("{code")?;
                 match code_block_kind {
                     CodeBlockKind::Fenced(language) => {
-                        self.write(&format!(":language={}", &language))?;
+                        let default = "text".to_string();
+                        let lang = self
+                            .lang_map
+                            .get(&language.to_string())
+                            .unwrap_or(&default)
+                            .clone();
+                        self.write(&format!(":language={}", &lang))?;
                     }
-                    _ => (),
+                    _ => (), // skips indented type
                 }
                 self.write("}")?;
                 self.write_newline()
@@ -283,7 +379,7 @@ pub fn write_toc<'a, W>(mut writer: W) -> io::Result<()>
 where
     W: Write,
 {
-    return write!(&mut writer, "{{toc}}\n\n");
+    write!(writer, "{{toc}}\n\n")
 }
 
 #[cfg(test)]
@@ -330,6 +426,42 @@ fn test_codeblock() {
         "\n\
                {code:language=java}\n\
                System.out.println(\"hello world\")\n\
+               {code}\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_console_codeblock() {
+    let input = "\
+    ```console\n\
+    $ ./console-test.sh\n\
+    should be bash\n\
+    ```";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               {code:language=bash}\n\
+               $ ./console-test.sh\n\
+               should be bash\n\
+               {code}\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_unknown_codeblock() {
+    let input = "\
+    ```unknown\n\
+    should be text\n\
+    ```";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
+    assert_eq!(
+        "\n\
+               {code:language=text}\n\
+               should be text\n\
                {code}\n",
         String::from_utf8(output).unwrap()
     );
@@ -516,9 +648,9 @@ fn test_horizontal_rule() {
 #[test]
 fn test_task_list() {
     let input = "\
-    - [ ] task one\n\
-    - [ ] task two\n\
-    - [x] completed task";
+    * [ ] task one\n\
+    * [ ] task two\n\
+    * [x] completed task";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all())).is_ok());
     assert_eq!(
