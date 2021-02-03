@@ -9,6 +9,7 @@ extern crate clap;
 use clap::{App, Arg};
 
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::process::Command;
 use std::{env, fs};
 
 fn main() -> io::Result<()> {
@@ -27,7 +28,7 @@ fn main() -> io::Result<()> {
         )
         .arg(
             Arg::with_name("modify_headers")
-                .help("add N to each header level")
+                .help("add N to each header level. Can be negative")
                 .long("modify-headers")
                 .short("m")
                 .multiple(false)
@@ -51,10 +52,43 @@ fn main() -> io::Result<()> {
                 .index(2)
                 .required(false),
         )
+        .arg(
+            Arg::with_name("editor")
+                .help("Launch $EDITOR as input")
+                .long("editor")
+                .short("e")
+                .required(false)
+                .multiple(false)
+                .takes_value(false)
+                .conflicts_with("output"), // we just want to ensure 1 file passed
+        )
         .get_matches();
 
+    // if --editor is passed, launch $EDITOR with a temporary file
+    // you can provide `-e OUTPUT`, but this means reinterpreting INPUT as OUTPUT if `-e` is passed.
+    let mut tmpfile = env::temp_dir();
+    tmpfile.push("markrust.md");
+
+    let mut input_file: Option<&str> = args.value_of("input");
+    let mut output_file: Option<&str> = args.value_of("output");
+
+    if args.is_present("editor") {
+        fs::File::create(&tmpfile).expect("Could not write temporary file. Falling back to stdin.");
+
+        // launch the editor
+        let editor = env::var("EDITOR").unwrap_or("vim".to_string());
+        Command::new(editor)
+            .arg(&tmpfile)
+            .status()
+            .expect("Failed to launch $EDITOR. Do you have flags?");
+
+        // treat the `input` as `output`
+        output_file = input_file;
+        input_file = tmpfile.to_str();
+    }
+
     // take either stdin or a file
-    let mut input_reader: Box<dyn BufRead> = match args.value_of("input") {
+    let mut input_reader: Box<dyn BufRead> = match input_file {
         Some(filename) => Box::new(BufReader::new(
             fs::File::open(filename).expect("Could not read input file"),
         )),
@@ -68,7 +102,7 @@ fn main() -> io::Result<()> {
         .expect("Could not read input");
 
     // output to either stdout or a file
-    let mut output_writer: Box<dyn Write> = match args.value_of("output") {
+    let mut output_writer: Box<dyn Write> = match output_file {
         Some(filename) => Box::new(BufWriter::new(
             fs::File::create(filename).expect("could not create output file"),
         )),
