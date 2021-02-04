@@ -26,6 +26,9 @@ struct JiraWriter<I, W> {
     lang_map: HashMap<String, String>,
     // add modify_headers to header level
     modify_headers: i8,
+    // if the current line should be output. Solves the issue of header parts being output when
+    // unnecessary
+    should_output_line: bool,
 }
 
 /// builds the language mapper
@@ -139,18 +142,23 @@ where
             inline_code: false,
             lang_map: build_lang_map(),
             modify_headers: modify_headers,
+            should_output_line: true,
         }
     }
 
-    /// Writes `s` to underlying `writer`.
+    /// Writes `s` to underlying `writer`, if it should write.
     /// Sets `self.end_newline` to true if `s` ends in a newline.
     ///
     /// # Arguments
     ///
     /// * `s` - string to write
     fn write(&mut self, s: &str) -> io::Result<()> {
-        self.end_newline = s.ends_with("\n");
-        self.writer.write_all(s.as_bytes())
+        if self.should_output_line {
+            self.end_newline = s.ends_with("\n");
+            self.writer.write_all(s.as_bytes())
+        } else {
+            Ok(())
+        }
     }
 
     /// Writes a newline to underlying `writer`.
@@ -250,7 +258,7 @@ where
                         Ok(())
                     }
                 } else {
-                    self.iter.next(); // skip header contents if header level < 0
+                    self.should_output_line = false; // skip header contents if header level <= 0
                     Ok(())
                 }
             }
@@ -328,7 +336,14 @@ where
     fn end_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
         match tag {
             Tag::Paragraph => self.write_newline(),
-            Tag::Heading(_) => self.write_newline(),
+            Tag::Heading(_) => {
+                if !self.should_output_line {
+                    self.should_output_line = true;
+                    Ok(())
+                } else {
+                    self.write_newline()
+                }
+            }
             Tag::BlockQuote => {
                 self.write("{quote}")?;
                 self.write_newline()
@@ -701,11 +716,20 @@ fn test_modified_headings() {
     let input = "# hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
-    assert_eq!("\n\n", String::from_utf8(output).unwrap());
+    assert_eq!("\n", String::from_utf8(output).unwrap());
 
     // header level 6 + 1 = 7
     let input = "###### hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 1).is_ok());
     assert_eq!("\nhello world\n", String::from_utf8(output).unwrap());
+}
+
+#[test]
+fn test_modified_headings_with_inline() {
+    // header level 1 - 1 = 0
+    let input = "# hello world `inline code`";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
+    assert_eq!("\n", String::from_utf8(output).unwrap());
 }
