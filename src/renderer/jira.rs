@@ -5,32 +5,6 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io::{self, Write};
 
-struct JiraWriter<I, W> {
-    iter: I,
-    writer: W,
-    // if we ended on a newline so we can fix newlines for lists
-    end_newline: bool,
-    // if we're on a table header cell
-    table_header: bool,
-    // what bullets we're working with
-    bullet_stack: Vec<u8>,
-    // if we come across a link, set this to true so we can capture the incoming string in the
-    // first half of the link
-    link: bool,
-    // if we're working with an image, we'll need to keep track of states
-    image: bool,
-    image_text: bool,
-    // must ensure space after inline code end curly brace
-    inline_code: bool,
-    // map between markdown/confluence code block langs
-    lang_map: HashMap<String, String>,
-    // add modify_headers to header level
-    modify_headers: i8,
-    // if the current line should be output. Solves the issue of header parts being output when
-    // unnecessary
-    should_output_line: bool,
-}
-
 /// builds the language mapper
 ///
 /// # Returns
@@ -116,6 +90,52 @@ fn build_lang_map() -> HashMap<String, String> {
     return lang_map;
 }
 
+fn make_escape_list() -> HashMap<String, String> {
+    let mut escape_map = HashMap::new();
+
+    fn add_escape(
+        sub_map: &mut std::collections::HashMap<std::string::String, std::string::String>,
+        key: &str,
+        value: &str,
+    ) {
+        sub_map.insert(key.to_string(), value.to_string());
+    }
+
+    add_escape(&mut escape_map, "{", "&#123;");
+    add_escape(&mut escape_map, "}", "&#125;");
+    add_escape(&mut escape_map, "*", "\\*");
+
+    return escape_map;
+}
+
+struct JiraWriter<I, W> {
+    iter: I,
+    writer: W,
+    // if we ended on a newline so we can fix newlines for lists
+    end_newline: bool,
+    // if we're on a table header cell
+    table_header: bool,
+    // what bullets we're working with
+    bullet_stack: Vec<u8>,
+    // if we come across a link, set this to true so we can capture the incoming string in the
+    // first half of the link
+    link: bool,
+    // if we're working with an image, we'll need to keep track of states
+    image: bool,
+    image_text: bool,
+    // must ensure space after inline code end curly brace
+    inline_code: bool,
+    // map between markdown/confluence code block langs
+    lang_map: HashMap<String, String>,
+    // add modify_headers to header level
+    modify_headers: i8,
+    // if the current line should be output. Solves the issue of header parts being output when
+    // unnecessary
+    should_output_line: bool,
+    // escape some stuff in the code blocks, etc.
+    escape_map: HashMap<String, String>,
+}
+
 impl<'a, I, W> JiraWriter<I, W>
 where
     I: Iterator<Item = Event<'a>>,
@@ -133,7 +153,7 @@ where
         Self {
             iter,
             writer,
-            end_newline: true,
+            end_newline: false,
             table_header: false,
             bullet_stack: vec![],
             link: false,
@@ -143,6 +163,7 @@ where
             lang_map: build_lang_map(),
             modify_headers: modify_headers,
             should_output_line: true,
+            escape_map: make_escape_list(),
         }
     }
 
@@ -176,7 +197,11 @@ where
     ///
     /// * `s` - string with {} replaced with HTML equivalent
     fn write_escaped(&mut self, s: &str) -> io::Result<()> {
-        self.write(&s.replace("{", "&#123;").replace("}", "&#125;"))
+        let mut r = String::from(s);
+        for (key, value) in self.escape_map.iter() {
+            r = r.replace(key, value);
+        }
+        self.write(&r)
     }
 
     /// Main part of the parser, outputting to underlying `writer`.
@@ -199,6 +224,7 @@ where
                         self.write("|title=\"")?;
                     }
                     if self.inline_code && !text.starts_with(" ") {
+                        // put a space after double curly brace if more text
                         self.write(" ")?;
                         self.inline_code = false;
                     }
@@ -247,7 +273,9 @@ where
         match tag {
             Tag::Paragraph => self.write_newline(),
             Tag::Heading(level) => {
-                self.write_newline()?;
+                if self.end_newline {
+                    self.write_newline()?;
+                }
                 let parsed_level = i8::try_from(level).unwrap() + self.modify_headers;
                 if parsed_level > 0 {
                     if parsed_level < 7 {
@@ -420,16 +448,12 @@ fn test_headings() {
     let input = "# hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
-    assert_eq!("\nh1. hello world\n", String::from_utf8(output).unwrap());
+    assert_eq!("h1. hello world\n", String::from_utf8(output).unwrap());
 
     let input = "## hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
-    assert_eq!(
-        "\n\
-               h2. hello world\n",
-        String::from_utf8(output).unwrap()
-    );
+    assert_eq!("h2. hello world\n", String::from_utf8(output).unwrap());
 }
 
 #[test]
@@ -495,6 +519,17 @@ fn test_unknown_codeblock() {
                {code:language=text}\n\
                should be text\n\
                {code}\n",
+        String::from_utf8(output).unwrap()
+    );
+}
+
+#[test]
+fn test_nested_markup_inline_code() {
+    let input = "`inline code with an asterisk *` like `rm -rf ./*.extension`";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
+    assert_eq!(
+        "\n{{inline code with an asterisk \\*}} like {{rm -rf ./\\*.extension}}\n",
         String::from_utf8(output).unwrap()
     );
 }
@@ -700,29 +735,25 @@ fn test_modified_headings() {
     let input = "# hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 1).is_ok());
-    assert_eq!("\nh2. hello world\n", String::from_utf8(output).unwrap());
+    assert_eq!("h2. hello world\n", String::from_utf8(output).unwrap());
 
     // header level 2 - 1 = 1
     let input = "## hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
-    assert_eq!(
-        "\n\
-               h1. hello world\n",
-        String::from_utf8(output).unwrap()
-    );
+    assert_eq!("h1. hello world\n", String::from_utf8(output).unwrap());
 
     // header level 1 - 1 = 0
     let input = "# hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
-    assert_eq!("\n", String::from_utf8(output).unwrap());
+    assert_eq!("", String::from_utf8(output).unwrap());
 
     // header level 6 + 1 = 7
     let input = "###### hello world";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 1).is_ok());
-    assert_eq!("\nhello world\n", String::from_utf8(output).unwrap());
+    assert_eq!("hello world\n", String::from_utf8(output).unwrap());
 }
 
 #[test]
@@ -731,5 +762,5 @@ fn test_modified_headings_with_inline() {
     let input = "# hello world `inline code`";
     let mut output = Vec::new();
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), -1).is_ok());
-    assert_eq!("\n", String::from_utf8(output).unwrap());
+    assert_eq!("", String::from_utf8(output).unwrap());
 }
