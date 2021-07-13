@@ -6,7 +6,7 @@ Convert from Markdown to Atlassian markup.
 
 ```console
 $ ./markrust -h
-markrust 1.2.2
+markrust 1.2.3
 guppy0130 <guppy0130@yahoo.com>
 Converts Markdown to Atlassian markup
 
