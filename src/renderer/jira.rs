@@ -101,6 +101,7 @@ fn make_escape_list() -> HashMap<String, String> {
         sub_map.insert(key.to_string(), value.to_string());
     }
 
+    // we may not need to escape all; view [JiraWriter::write_escaped()]
     add_escape(&mut escape_map, "{", "&#123;");
     add_escape(&mut escape_map, "}", "&#125;");
     add_escape(&mut escape_map, "*", "\\*");
@@ -200,6 +201,14 @@ where
         let mut r = String::from(s);
         for (key, value) in self.escape_map.iter() {
             r = r.replace(key, value);
+        }
+        // if these characters are first, they break rendering, but it doesn't matter if they show
+        // up later, so you only need to replace the first!
+        match r.chars().nth(0).unwrap() {
+            '-' => {
+                r.replace_range(0..1, "\\-");
+            }
+            _ => (),
         }
         self.write(&r)
     }
@@ -530,6 +539,13 @@ fn test_nested_markup_inline_code() {
     assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
     assert_eq!(
         "\n{{inline code with an asterisk \\*}} like {{rm -rf ./\\*.extension}}\n",
+        String::from_utf8(output).unwrap()
+    );
+    let input = "a flag like `-r`";
+    let mut output = Vec::new();
+    assert!(write_jira(&mut output, Parser::new_ext(input, Options::all()), 0).is_ok());
+    assert_eq!(
+        "\na flag like {{\\-r}}\n",
         String::from_utf8(output).unwrap()
     );
 }
