@@ -60,7 +60,7 @@ checksum = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
 
 [[package]]
 name = "markrust"
-version = "1.2.3"
+version = "1.3.0"
 dependencies = [
  "clap",
  "pulldown-cmark",
