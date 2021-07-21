@@ -250,7 +250,8 @@ where
                     self.inline_code = true;
                 }
                 Event::SoftBreak => {
-                    self.write_newline()?;
+                    // a softbreak in GH markdown is not a newline in Atlassian markup
+                    self.write(" ")?;
                 }
                 Event::HardBreak => {
                     self.write_newline()?;
