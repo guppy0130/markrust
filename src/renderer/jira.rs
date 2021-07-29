@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io::{self, Write};
 
-/// builds the language mapper
+/// Builds the language mapper
 ///
 /// # Returns
 ///
@@ -90,6 +90,11 @@ fn build_lang_map() -> HashMap<String, String> {
     return lang_map;
 }
 
+/// Makes a list of characters to escape when inside curly braces
+///
+/// # Returns
+///
+/// * `HashMap<String, String>` - from original character to escaped sequence
 fn make_escape_list() -> HashMap<String, String> {
     let mut escape_map = HashMap::new();
 
@@ -109,6 +114,7 @@ fn make_escape_list() -> HashMap<String, String> {
     return escape_map;
 }
 
+/// The JiraWriter takes events from pulldown-cmark and formats it into Atlassian markup
 struct JiraWriter<I, W> {
     iter: I,
     writer: W,
@@ -439,6 +445,17 @@ where
     }
 }
 
+/// Writes Jira output
+///
+/// # Arguments
+///
+/// * `writer` - something implementing the Write trait
+/// * `iter` - an iterator of Events from pulldown-cmark
+/// * `modify_headers` - a signed int to modify header levels
+///
+/// # Returns
+///
+/// * `Result` - if the JiraWriter wrote successfully to `writer`
 pub fn write_jira<'a, I, W>(writer: W, iter: I, modify_headers: i8) -> io::Result<()>
 where
     I: Iterator<Item = Event<'a>>,
@@ -447,6 +464,15 @@ where
     JiraWriter::new(iter, writer, modify_headers).run()
 }
 
+/// Writes the table of contents macro
+///
+/// # Arguments
+///
+/// * `writer` - something implementing the Write trait
+///
+/// # Returns
+///
+/// * `Result` - if wrote successfully to `writer`
 pub fn write_toc<'a, W>(mut writer: W) -> io::Result<()>
 where
     W: Write,

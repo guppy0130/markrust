@@ -1,6 +1,7 @@
 extern crate pulldown_cmark;
 use pulldown_cmark::{Options, Parser};
 
+/// The renderer is responsible for converting events from pulldown-cmark into markup
 mod renderer;
 use renderer::jira;
 
@@ -12,6 +13,11 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::Command;
 use std::{env, fs};
 
+/// Binary entrypoint
+///
+/// # Returns
+///
+/// * `Result` - from writing to stdout or file
 fn main() -> io::Result<()> {
     let args = App::new(crate_name!())
         .version(crate_version!())

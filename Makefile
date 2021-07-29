@@ -1,5 +1,5 @@
 clean:
-	rm -f lcov.info
+	rm -f lcov.info markrust.profraw
 
 coverage: RUSTC_BOOTSTRAP=1
 coverage: RUSTFLAGS=-Zinstrument-coverage
@@ -13,3 +13,6 @@ coverage: clean
 		--branch \
 		--ignore-not-existing \
 		-o ./lcov.info
+
+docs:
+	cargo rustdoc
