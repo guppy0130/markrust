@@ -6,7 +6,7 @@ Convert from Markdown to Atlassian markup.
 
 ```console
 $ ./markrust -h
-markrust 2.0.0
+markrust 2.1.0
 guppy0130 <guppy0130@yahoo.com>
 Converts Markdown to Atlassian markup
 
@@ -18,11 +18,23 @@ ARGS:
     <OUTPUT>    FILE output, or empty for stdout
 
 OPTIONS:
-    -e, --editor                             Launch $EDITOR as input
-    -h, --help                               Print help information
-    -m, --modify-headers <MODIFY_HEADERS>    Add N to header level (can be negative) [default: 0]
-    -t, --toc                                Prepend TOC markup
-    -V, --version                            Print version information
+    -e, --editor
+            Launch $EDITOR as input
+
+    -h, --help
+            Print help information
+
+    -l, --language <LANGUAGE>
+            [default: confluence] [possible values: jira, confluence]
+
+    -m, --modify-headers <MODIFY_HEADERS>
+            Add N to header level (can be negative) [default: 0]
+
+    -t, --toc
+            Prepend TOC markup
+
+    -V, --version
+            Print version information
 ```
 
 ## Features

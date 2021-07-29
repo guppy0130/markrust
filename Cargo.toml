@@ -1,6 +1,6 @@
 [package]
 name = "markrust"
-version = "2.0.0"
+version = "2.1.0"
 authors = ["guppy0130 <guppy0130@yahoo.com>"]
 edition = "2021"
 description = "Converts Markdown to Atlassian markup"
