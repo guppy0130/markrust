@@ -4,9 +4,18 @@ version = "1.4.0"
 authors = ["guppy0130 <guppy0130@yahoo.com>"]
 edition = "2018"
 description = "Converts Markdown to Atlassian markup"
+readme = "README.md"
+repository = "https://github.com/guppy0130/markrust"
+keywords = ["markdown", "atlassian"]
+categories = ["command-line-utilities", "template-engine"]
+exclude = ["setup_env.ps1"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies.pulldown-cmark]
+version = "0.8.0"
+default-features = false
+features = [ "simd" ]
 
-[dependencies]
-pulldown-cmark = { version = "0.8.0", default-features = false, features = ["simd"] }
-clap = "2.33.3"
+[dependencies.clap]
+version = "2.33.3"
+default-features = true
+features = [ "yaml" ]
