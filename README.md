@@ -29,7 +29,7 @@ ARGS:
 
 ## Features
 
-Compared to the default Markdown converter
+Compared to the Markdown converter that comes with Atlassian products:
 
 * Code block macro with syntax highlighting
 * Code block macro with automatic language mapping
@@ -41,3 +41,10 @@ Compared to the default Markdown converter
 
 * `markrust -e output` will launch your `$EDITOR` with `$TMP/markrust.md` as an argument, then when the editor returns, write the Atlassian markup to `output`.
   * You can only supply one path with the `-e` flag as a result
+
+## Testing
+
+* `cargo test`
+* `cargo bench` - coming soon
+* `make coverage` to compute coverage
+  * if you're on Windows, you may want to run `setup_env.ps1` first.

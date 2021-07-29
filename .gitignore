@@ -2,3 +2,5 @@
 test.md
 .vscode/
 *.atlassian
+*.profraw
+lcov.info
