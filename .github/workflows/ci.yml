@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: CI
+
+# lint all PRs, pushes to master, and tags
+on:
+  pull_request:
+  push:
+    branches:
+      - "master"
+    tags:
+      - "v*"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+          profile: minimal
+      - name: Lint
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose
+
+  # this cannot be in its own file yet because the workflow-trigger-workflow
+  # pattern causes the github.ref to not have refs/tags
+  build:
+    # only build tagged versions
+    if: startsWith(github.ref, 'refs/tags')
+    # lint needs to pass first
+    needs: lint
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: markrust.exe
+          - os: ubuntu-latest
+            artifact_name: markrust
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          prerelease: false
+          files: target/release/${{ matrix.artifact_name }}

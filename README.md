@@ -6,21 +6,19 @@ Convert from Markdown to Atlassian markup.
 
 ```console
 $ ./markrust -h
-markrust 1.3.0
+markrust 1.5.0
 guppy0130 <guppy0130@yahoo.com>
 Converts Markdown to Atlassian markup
 
 USAGE:
-    markrust.exe [FLAGS] [OPTIONS] [ARGS]
+    markrust.exe [FLAGS] [ARGS]
 
 FLAGS:
-    -e, --editor     Launch $EDITOR as input
-    -h, --help       Prints help information
-    -t, --toc        Prepend TOC markup
-    -V, --version    Prints version information
-
-OPTIONS:
-    -m, --modify-headers=<modify_headers>    add N to each header level. Can be negative
+    -e, --editor            Launch $EDITOR as input
+    -h, --help              Prints help information
+    -m, --modify_headers    Add N to each header level. Can be negative
+    -t, --toc               Prepend TOC markup
+    -V, --version           Prints version information
 
 ARGS:
     <input>     FILE input, or empty for stdin
