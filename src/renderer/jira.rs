@@ -87,7 +87,7 @@ fn build_lang_map() -> HashMap<String, String> {
     );
     build_aliases(&mut lang_map, "sass", vec!["scss", "less", "stylus"]);
     build_aliases(&mut lang_map, "vb", vec!["visual basic", "vb.net", "vbnet"]);
-    return lang_map;
+    lang_map
 }
 
 /// Makes a list of characters to escape when inside curly braces
@@ -111,7 +111,7 @@ fn make_escape_list() -> HashMap<String, String> {
     add_escape(&mut escape_map, "}", "&#125;");
     add_escape(&mut escape_map, "*", "\\*");
 
-    return escape_map;
+    escape_map
 }
 
 /// The JiraWriter takes events from pulldown-cmark and formats it into Atlassian markup
@@ -168,7 +168,7 @@ where
             image_text: false,
             inline_code: false,
             lang_map: build_lang_map(),
-            modify_headers: modify_headers,
+            modify_headers,
             should_output_line: true,
             escape_map: make_escape_list(),
         }
@@ -182,7 +182,7 @@ where
     /// * `s` - string to write
     fn write(&mut self, s: &str) -> io::Result<()> {
         if self.should_output_line {
-            self.end_newline = s.ends_with("\n");
+            self.end_newline = s.ends_with('\n');
             self.writer.write_all(s.as_bytes())
         } else {
             Ok(())
@@ -210,11 +210,8 @@ where
         }
         // if these characters are first, they break rendering, but it doesn't matter if they show
         // up later, so you only need to replace the first!
-        match r.chars().nth(0).unwrap() {
-            '-' => {
-                r.replace_range(0..1, "\\-");
-            }
-            _ => (),
+        if r.starts_with('-') {
+            r.replace_range(0..1, "\\-");
         }
         self.write(&r)
     }
@@ -238,7 +235,7 @@ where
                     if self.image {
                         self.write("|title=\"")?;
                     }
-                    if self.inline_code && !text.starts_with(" ") {
+                    if self.inline_code && !text.starts_with(' ') {
                         // put a space after ending double curly brace
                         self.write(" ")?;
                         self.inline_code = false;
@@ -315,18 +312,16 @@ where
             Tag::CodeBlock(code_block_kind) => {
                 self.write_newline()?;
                 self.write("{code")?;
-                match code_block_kind {
-                    CodeBlockKind::Fenced(language) => {
-                        let default = "text".to_string();
-                        let lang = self
-                            .lang_map
-                            .get(&language.to_string())
-                            .unwrap_or(&default)
-                            .clone();
-                        self.write(&format!(":language={}", &lang))?;
-                    }
-                    _ => (), // skips indented type
+                if let CodeBlockKind::Fenced(language) = code_block_kind {
+                    let default = "text".to_string();
+                    let lang = self
+                        .lang_map
+                        .get(&language.to_string())
+                        .unwrap_or(&default)
+                        .clone();
+                    self.write(&format!(":language={}", &lang))?;
                 }
+                // skipping 4-space indented type
                 self.write("}")?;
                 self.write_newline()
             }
@@ -473,7 +468,7 @@ where
 /// # Returns
 ///
 /// * `Result` - if wrote successfully to `writer`
-pub fn write_toc<'a, W>(mut writer: W) -> io::Result<()>
+pub fn write_toc<W>(mut writer: W) -> io::Result<()>
 where
     W: Write,
 {

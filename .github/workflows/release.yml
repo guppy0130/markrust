@@ -1,0 +1,63 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: build
+
+# when the test workflow finishes
+on:
+  workflow_run:
+    workflows:
+      - test
+    branches:
+      - master
+    types:
+      - completed
+
+jobs:
+  build:
+    # only build tagged versions that pass the test in previous workflow
+    if: |
+      startsWith(github.ref, 'refs/tags') &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        targets:
+          - x86_64-pc-windows-msvc
+          - x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      # toolchain for each target in matrix
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          target: ${{ matrix.targets }}
+          override: true
+      # use cross to build for each target in matrix
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.targets }}
+      # write up release
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          # leave as draft so we can manually approve
+          draft: true
+          # these are not pre-releases since they're tagged
+          prerelease: false
+      # add content to release
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./target/**/release/markrust*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

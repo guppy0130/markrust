@@ -19,54 +19,21 @@ use std::{env, fs};
 ///
 /// * `Result` - from writing to stdout or file
 fn main() -> io::Result<()> {
-    let args = App::new(crate_name!())
+    let yaml = load_yaml!("cli.yaml");
+    let args = App::from_yaml(yaml)
+        .name(crate_name!())
         .version(crate_version!())
         .author(crate_authors!())
         .about(crate_description!())
         .arg(
-            Arg::with_name("toc")
-                .help("Prepend TOC markup")
-                .long("toc")
-                .short("t")
-                .multiple(false)
-                .takes_value(false)
-                .required(false),
-        )
-        .arg(
             Arg::with_name("modify_headers")
-                .help("add N to each header level. Can be negative")
-                .long("modify-headers")
                 .short("m")
-                .multiple(false)
-                .takes_value(true)
-                .require_equals(true) // so negative numbers aren't flags
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("input")
-                .help("FILE input, or empty for stdin")
-                .long("input")
-                .short("i")
-                .index(1)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("output")
-                .help("FILE output, or empty for stdout")
-                .long("output")
-                .short("o")
-                .index(2)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("editor")
-                .help("Launch $EDITOR as input")
-                .long("editor")
-                .short("e")
-                .required(false)
+                .long("modify_headers")
+                .help("Add N to each header level. Can be negative")
                 .multiple(false)
                 .takes_value(false)
-                .conflicts_with("output"), // we just want to ensure 1 file passed
+                .required(false)
+                .require_equals(true),
         )
         .get_matches();
 
@@ -82,7 +49,7 @@ fn main() -> io::Result<()> {
         fs::File::create(&tmpfile).expect("Could not write temporary file. Falling back to stdin.");
 
         // launch the editor
-        let editor = env::var("EDITOR").unwrap_or("vim".to_string());
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
         Command::new(editor)
             .arg(&tmpfile)
             .status()
