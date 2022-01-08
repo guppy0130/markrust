@@ -51,8 +51,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            target: x86_64-pc-windows-msvc
             artifact_name: markrust.exe
           - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: markrust
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             artifact_name: markrust
     runs-on: ${{ matrix.os }}
     steps:
@@ -67,10 +72,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --target ${{ matrix.target }} --release
+      - name: Prepend target to build artifact path for release
+        run: mv "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "target/${{ matrix.target }}/release/${{ matrix.target }}-${{ matrix.artifact_name }}"
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v1
         with:
           draft: true
           prerelease: false
-          files: target/release/${{ matrix.artifact_name }}
+          files: target/${{ matrix.target }}/release/${{ matrix.target }}-${{ matrix.artifact_name }}

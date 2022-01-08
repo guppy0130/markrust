@@ -1,3 +1,15 @@
+release: clean
+	cargo build --release
+
+build: clean
+	cargo build
+
+test:
+	cargo test
+
+bench:
+	cargo bench
+
 clean:
 	rm -f lcov.info markrust.profraw
 
