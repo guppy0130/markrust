@@ -6,23 +6,23 @@ Convert from Markdown to Atlassian markup.
 
 ```console
 $ ./markrust -h
-markrust 1.5.0
+markrust 2.0.0
 guppy0130 <guppy0130@yahoo.com>
 Converts Markdown to Atlassian markup
 
 USAGE:
-    markrust.exe [FLAGS] [ARGS]
-
-FLAGS:
-    -e, --editor            Launch $EDITOR as input
-    -h, --help              Prints help information
-    -m, --modify_headers    Add N to each header level. Can be negative
-    -t, --toc               Prepend TOC markup
-    -V, --version           Prints version information
+    markrust [OPTIONS] [ARGS]
 
 ARGS:
-    <input>     FILE input, or empty for stdin
-    <output>    FILE output, or empty for stdout
+    <INPUT>     FILE input, or empty for stdin
+    <OUTPUT>    FILE output, or empty for stdout
+
+OPTIONS:
+    -e, --editor                             Launch $EDITOR as input
+    -h, --help                               Print help information
+    -m, --modify-headers <MODIFY_HEADERS>    Add N to header level (can be negative) [default: 0]
+    -t, --toc                                Prepend TOC markup
+    -V, --version                            Print version information
 ```
 
 ## Features
@@ -37,7 +37,9 @@ Compared to the Markdown converter that comes with Atlassian products:
 
 ## Notes
 
-* `markrust -e output` will launch your `$EDITOR` with `$TMP/markrust.md` as an argument, then when the editor returns, write the Atlassian markup to `output`.
+* `markrust -e output` will launch your `$EDITOR` with `$TMP/markrust.md` as an
+  argument, then when the editor returns, write the Atlassian markup to
+  `output`.
   * You can only supply one path with the `-e` flag as a result
 
 ## Testing

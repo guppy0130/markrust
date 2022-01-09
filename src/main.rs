@@ -1,51 +1,55 @@
 extern crate pulldown_cmark;
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::{Options, Parser as MarkdownParser};
 
 /// The renderer is responsible for converting events from pulldown-cmark into markup
 mod renderer;
 use renderer::jira;
 
-#[macro_use]
-extern crate clap;
-use clap::{App, Arg};
+use clap::{ArgGroup, Parser};
 
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::Command;
 use std::{env, fs};
 
+#[derive(Parser)]
+#[clap(author, version, about)]
+// invalid cases: `-e in out`
+// valid cases: `-e out` `` `in out`
+// exclude output because we'll manually shift input to output later (index 0 is input)
+#[clap(group(ArgGroup::new("editor_exclusion").required(false).args(&["output", "editor"])))]
+struct Cli {
+    /// Prepend TOC markup
+    #[clap(short, long)]
+    toc: bool,
+    /// FILE input, or empty for stdin
+    input: Option<String>,
+    /// FILE output, or empty for stdout
+    output: Option<String>,
+    /// Launch $EDITOR as input
+    #[clap(short, long)]
+    editor: bool,
+    /// Add N to header level (can be negative)
+    #[clap(default_value_t = 0, short, long)]
+    modify_headers: i8,
+}
 /// Binary entrypoint
 ///
 /// # Returns
 ///
 /// * `Result` - from writing to stdout or file
 fn main() -> io::Result<()> {
-    let yaml = load_yaml!("cli.yaml");
-    let args = App::from_yaml(yaml)
-        .name(crate_name!())
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about(crate_description!())
-        .arg(
-            Arg::with_name("modify_headers")
-                .short("m")
-                .long("modify_headers")
-                .help("Add N to each header level. Can be negative")
-                .multiple(false)
-                .takes_value(false)
-                .required(false)
-                .require_equals(true),
-        )
-        .get_matches();
+    let args = Cli::parse();
 
-    // if --editor is passed, launch $EDITOR with a temporary file
-    // you can provide `-e OUTPUT`, but this means reinterpreting INPUT as OUTPUT if `-e` is passed.
-    let mut tmpfile = env::temp_dir();
-    tmpfile.push("markrust.md");
+    let mut input_file: Option<String> = args.input;
+    let mut output_file: Option<String> = args.output;
 
-    let mut input_file: Option<&str> = args.value_of("input");
-    let mut output_file: Option<&str> = args.value_of("output");
+    if args.editor {
+        // if --editor is passed, launch $EDITOR with a temporary file you can
+        // provide `-e OUTPUT`, but this means reinterpreting INPUT as OUTPUT if
+        // `-e` is passed.
+        let mut tmpfile = env::temp_dir();
+        tmpfile.push("markrust.md");
 
-    if args.is_present("editor") {
         fs::File::create(&tmpfile).expect("Could not write temporary file. Falling back to stdin.");
 
         // launch the editor
@@ -57,7 +61,7 @@ fn main() -> io::Result<()> {
 
         // treat the `input` as `output`
         output_file = input_file;
-        input_file = tmpfile.to_str();
+        input_file = Some(String::from(tmpfile.to_str().unwrap()));
     }
 
     // take either stdin or a file
@@ -83,14 +87,14 @@ fn main() -> io::Result<()> {
     };
 
     let options = Options::all();
-    let parser = Parser::new_ext(&input_string, options);
+    let parser = MarkdownParser::new_ext(&input_string, options);
 
-    if args.is_present("toc") {
+    if args.toc {
         // prepend TOC markup first
         jira::write_toc(&mut output_writer)?;
     }
 
-    let modify_headers = value_t!(args.value_of("modify_headers"), i8).unwrap_or(0);
+    let modify_headers = args.modify_headers;
     jira::write_jira(&mut output_writer, parser, modify_headers)?;
 
     // flush before drop

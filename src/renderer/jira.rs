@@ -2,7 +2,6 @@ extern crate pulldown_cmark;
 use pulldown_cmark::*;
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::io::{self, Write};
 
 /// Builds the language mapper
@@ -287,11 +286,19 @@ where
     fn start_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
         match tag {
             Tag::Paragraph => self.write_newline(),
-            Tag::Heading(level) => {
+            Tag::Heading(level, ..) => {
                 if self.end_newline {
                     self.write_newline()?;
                 }
-                let parsed_level = i8::try_from(level).unwrap() + self.modify_headers;
+                let mut parsed_level = match level {
+                    HeadingLevel::H1 => 1,
+                    HeadingLevel::H2 => 2,
+                    HeadingLevel::H3 => 3,
+                    HeadingLevel::H4 => 4,
+                    HeadingLevel::H5 => 5,
+                    HeadingLevel::H6 => 6,
+                };
+                parsed_level += self.modify_headers;
                 if parsed_level > 0 {
                     if parsed_level < 7 {
                         // valid headers are between 0..=6
@@ -377,7 +384,7 @@ where
     fn end_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
         match tag {
             Tag::Paragraph => self.write_newline(),
-            Tag::Heading(_) => {
+            Tag::Heading(..) => {
                 if !self.should_output_line {
                     self.should_output_line = true;
                     Ok(())
