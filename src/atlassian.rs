@@ -1,6 +1,8 @@
+extern crate markup5ever;
 extern crate pulldown_cmark;
+use ego_tree::NodeRef;
 use pulldown_cmark::*;
-
+use scraper::{Html, Node};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -142,6 +144,7 @@ struct AtlassianWriter<I, W> {
     escape_map: HashMap<String, String>,
     // jira or confluence
     flavor: char,
+    cached_html_content: String,
 }
 
 impl<'a, I, W> AtlassianWriter<I, W>
@@ -175,6 +178,7 @@ where
             should_output_line: true,
             escape_map: make_escape_list(),
             flavor,
+            cached_html_content: "".to_string(),
         }
     }
 
@@ -218,6 +222,75 @@ where
             r.replace_range(0..1, "\\-");
         }
         self.write(&r)
+    }
+
+    /// Parses HTML to Atlassian markup
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - node to parse
+    fn parse_html(&mut self, node: Option<NodeRef<Node>>) -> io::Result<()> {
+        match node {
+            // if there's no node to check, you've hit a leaf, so you're done here
+            None => Ok(()),
+            Some(n) => match n.value() {
+                Node::Element(elem) => {
+                    // we might need to skip parsing the child, because otherwise we get two
+                    // summary texts.
+                    let mut already_parsed = false;
+                    match elem.name.local {
+                        local_name!("details") => {
+                            self.write("{expand")?;
+                            // figure out if there is a summary amongst the children
+                            // if so, we should not write the ending curly brace.
+                            let mut should_write = true;
+                            for next_child in n.children() {
+                                // if the next scraper node elem is an element, and if it is a
+                                // summary element, we should not write the closing curly; the
+                                // summary handler will do that for us
+                                if let Node::Element(next_elem) = next_child.value() {
+                                    if matches!(next_elem.name.local, local_name!("summary")) {
+                                        should_write = false;
+                                    }
+                                }
+                            }
+                            // if there is no summary children, write the curly brace now
+                            if should_write {
+                                self.write("}\n")?;
+                            }
+                        }
+                        local_name!("summary") => {
+                            self.write("|title=")?;
+                            self.parse_html(n.first_child())?;
+                            self.write("}\n")?;
+                            // we don't need to parse the first child again
+                            already_parsed = true;
+                        }
+                        _ => (),
+                    }
+                    // if the next child is not yet parsed (wasn't a summary), parse it
+                    if !already_parsed {
+                        self.parse_html(n.first_child())?;
+                    }
+                    // close off the expand tag
+                    if matches!(elem.name.local, local_name!("details")) {
+                        self.write("\n{expand}\n")?;
+                    }
+                    // parse the rest of the elements
+                    self.parse_html(n.next_sibling())
+                }
+                Node::Text(text) => {
+                    // strip some noise
+                    let str_text = text.trim_start_matches('\n').trim_start_matches(' ');
+                    self.write_escaped(str_text)?;
+                    self.parse_html(n.next_sibling())
+                }
+                Node::Fragment => return self.parse_html(n.first_child()),
+                // we don't care about comments, because those shouldn't make it to the output
+                // we won't have a document, because we're generating/parsing fragments only
+                _ => Ok(()),
+            },
+        }
     }
 
     /// Main part of the parser, outputting to underlying `writer`.
@@ -272,6 +345,18 @@ where
                 Event::TaskListMarker(_) => {
                     self.write_newline()?;
                     self.write("[] ")?;
+                }
+                Event::Html(string) => {
+                    self.cached_html_content += &string;
+                    // attempt to parse it. if it fails, we don't have a complete fragment yet.
+                    // this approach is highly naive and unoptimized!
+                    let parsed_html = Html::parse_fragment(&self.cached_html_content);
+                    if parsed_html.errors.is_empty() {
+                        // parse
+                        self.parse_html(Some(parsed_html.tree.root()))?;
+                        // clear the cached HTML content
+                        self.cached_html_content = String::new()
+                    }
                 }
                 // File a PR if you need a feature
                 _ => (),
@@ -877,5 +962,27 @@ mod test {
         let mut output = Vec::new();
         assert!(write_toc(&mut output).is_ok());
         assert_eq!("{toc}\n\n", String::from_utf8(output).unwrap());
+    }
+
+    #[test]
+    fn test_details_no_summary() {
+        let input = "<details>Content</details>";
+        let mut output = Vec::new();
+        assert!(write(&mut output, Parser::new_ext(input, Options::all()), 0, 'c').is_ok());
+        assert_eq!(
+            "{expand}\nContent\n{expand}\n",
+            String::from_utf8(output).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_details_with_summary() {
+        let input = "<details><summary>Summary</summary>Content</details>";
+        let mut output = Vec::new();
+        assert!(write(&mut output, Parser::new_ext(input, Options::all()), 0, 'c').is_ok());
+        assert_eq!(
+            "{expand|title=Summary}\nContent\n{expand}\n",
+            String::from_utf8(output).unwrap()
+        );
     }
 }

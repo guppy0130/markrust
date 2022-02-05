@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate markup5ever;
 extern crate pulldown_cmark;
 use pulldown_cmark::{Options, Parser as MarkdownParser};
 

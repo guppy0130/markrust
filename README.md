@@ -46,13 +46,16 @@ Compared to the Markdown converter that comes with Atlassian products:
   * Console -> bash, language aliases, etc.
 * Automatic TOC markup (pass `-t` flag)
 * Header level modifier (add/remove to header levels across document)
+* Limited support for `details` and `summary` HTML elements
 
 ## Notes
 
 * `markrust -e output` will launch your `$EDITOR` with `$TMP/markrust.md` as an
-  argument, then when the editor returns, write the Atlassian markup to
-  `output`.
+  argument, then when the editor returns, markrust will write the Atlassian
+  markup to `output`.
   * You can only supply one path with the `-e` flag as a result
+* Markdown content in `details` and `summary` will not be parsed, because once
+  you're in HTML, only text will be kept as-is.
 
 ## Testing
 
