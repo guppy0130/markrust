@@ -1,6 +1,6 @@
 [package]
 name = "markrust"
-version = "2.1.0"
+version = "2.2.0"
 authors = ["guppy0130 <guppy0130@yahoo.com>"]
 edition = "2021"
 description = "Converts Markdown to Atlassian markup"
@@ -18,3 +18,12 @@ features = ["simd"]
 [dependencies.clap]
 version = "3.0.5"
 features = ["derive"]
+
+[dependencies.scraper]
+version = "0.12.0"
+
+[dependencies.ego-tree]
+version = "0.6.2"
+
+[dependencies.markup5ever]
+version = "0.10.1"
