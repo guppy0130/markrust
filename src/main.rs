@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate markup5ever;
-extern crate pulldown_cmark;
 use pulldown_cmark::{Options, Parser as MarkdownParser};
 
 /// The renderer is responsible for converting events from pulldown-cmark into markup

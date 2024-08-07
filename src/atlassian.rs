@@ -1,6 +1,5 @@
-extern crate markup5ever;
-extern crate pulldown_cmark;
 use ego_tree::NodeRef;
+use markup5ever::local_name;
 use pulldown_cmark::*;
 use scraper::{Html, Node};
 use std::collections::HashMap;
@@ -125,12 +124,6 @@ struct AtlassianWriter<I, W> {
     table_header: bool,
     // what bullets we're working with
     bullet_stack: Vec<u8>,
-    // if we come across a link, set this to true so we can capture the incoming string in the
-    // first half of the link
-    link: bool,
-    // if we're working with an image, we'll need to keep track of states
-    image: bool,
-    image_text: bool,
     // must ensure space after inline code end curly brace
     inline_code: bool,
     // map between markdown/confluence code block langs
@@ -145,6 +138,8 @@ struct AtlassianWriter<I, W> {
     // jira or confluence
     flavor: char,
     cached_html_content: String,
+    // cache the url for links because we need to put the text first
+    dest_url: String,
 }
 
 impl<'a, I, W> AtlassianWriter<I, W>
@@ -169,9 +164,6 @@ where
             end_newline: false,
             table_header: false,
             bullet_stack: vec![],
-            link: false,
-            image: false,
-            image_text: false,
             inline_code: false,
             lang_map: build_lang_map(),
             modify_headers,
@@ -179,6 +171,7 @@ where
             escape_map: make_escape_list(),
             flavor,
             cached_html_content: "".to_string(),
+            dest_url: "".to_string(),
         }
     }
 
@@ -309,19 +302,12 @@ where
                     self.end_tag(tag)?;
                 }
                 Event::Text(text) => {
-                    if self.image {
-                        self.write("|title=\"")?;
-                    }
                     if self.inline_code && !text.starts_with(' ') {
                         // put a space after ending double curly brace
                         self.write(" ")?;
                         self.inline_code = false;
                     }
                     self.write(&text)?;
-                    if self.image {
-                        self.write("\"")?;
-                        self.image_text = true;
-                    }
                 }
                 Event::Code(text) => {
                     self.write("{{")?;
@@ -376,7 +362,7 @@ where
     fn start_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
         match tag {
             Tag::Paragraph => self.write_newline(),
-            Tag::Heading(level, ..) => {
+            Tag::Heading { level, .. } => {
                 if self.end_newline {
                     self.write_newline()?;
                 }
@@ -402,7 +388,8 @@ where
                     Ok(())
                 }
             }
-            Tag::BlockQuote => {
+            Tag::BlockQuote(_) => {
+                // TODO: handle block_quote_kind later
                 self.write_newline()?;
                 self.write("{quote}")
             }
@@ -458,15 +445,11 @@ where
             Tag::Emphasis => self.write("_"),
             Tag::Strong => self.write("*"),
             Tag::Strikethrough => self.write("-"),
-            Tag::Link(..) => {
-                self.link = true;
+            Tag::Link { dest_url, .. } => {
+                self.dest_url = dest_url.to_string();
                 self.write("[")
             }
-            Tag::Image(_, destination, _) => {
-                self.image = true;
-                self.write("!")?;
-                self.write(&format!("{}", &destination))
-            }
+            Tag::Image { dest_url, .. } => self.write(&format!(r#"!{}|title=""#, dest_url)),
             _ => Ok(()),
         }
     }
@@ -476,10 +459,10 @@ where
     /// # Arguments
     ///
     /// * `tag` - tag to close
-    fn end_tag(&mut self, tag: Tag<'a>) -> io::Result<()> {
+    fn end_tag(&mut self, tag: TagEnd) -> io::Result<()> {
         match tag {
-            Tag::Paragraph => self.write_newline(),
-            Tag::Heading(..) => {
+            TagEnd::Paragraph => self.write_newline(),
+            TagEnd::Heading(..) => {
                 if !self.should_output_line {
                     self.should_output_line = true;
                     Ok(())
@@ -487,15 +470,15 @@ where
                     self.write_newline()
                 }
             }
-            Tag::BlockQuote => {
+            TagEnd::BlockQuote => {
                 self.write("{quote}")?;
                 self.write_newline()
             }
-            Tag::CodeBlock(_) => {
+            TagEnd::CodeBlock => {
                 self.write("{code}")?;
                 self.write_newline()
             }
-            Tag::List(_) => {
+            TagEnd::List(_) => {
                 self.bullet_stack.pop();
                 if self.bullet_stack.is_empty() {
                     self.write_newline()
@@ -503,39 +486,23 @@ where
                     Ok(())
                 }
             }
-            Tag::TableHead => {
+            TagEnd::TableHead => {
                 self.table_header = false;
                 self.write_newline()
             }
-            Tag::TableRow => self.write_newline(),
-            Tag::TableCell => {
+            TagEnd::TableRow => self.write_newline(),
+            TagEnd::TableCell => {
                 if self.table_header {
                     self.write("||")
                 } else {
                     self.write("|")
                 }
             }
-            Tag::Emphasis => self.write("_"),
-            Tag::Strong => self.write("*"),
-            Tag::Strikethrough => self.write("-"),
-            Tag::Link(_, destination, _) => {
-                if self.link {
-                    self.write("|")?;
-                }
-                self.link = false;
-                self.write(&format!("{}]", destination))
-            }
-            Tag::Image(_, _, alt) => {
-                if self.image_text {
-                    self.write(",")?;
-                } else {
-                    self.write("|")?;
-                }
-                self.write(&format!("alt=\"{}\"", alt))?;
-                self.image = false;
-                self.image_text = false;
-                self.write("!")
-            }
+            TagEnd::Emphasis => self.write("_"),
+            TagEnd::Strong => self.write("*"),
+            TagEnd::Strikethrough => self.write("-"),
+            TagEnd::Link => self.write(&format!("|{}]", self.dest_url)),
+            TagEnd::Image => self.write(r#"",alt=""!"#), // TODO: handle this better
             // handle Item
             _ => Ok(()),
         }
@@ -851,7 +818,9 @@ mod test {
         let mut output = Vec::new();
         assert!(write(&mut output, Parser::new_ext(input, Options::all()), 0, 'j').is_ok());
         assert_eq!(
-            "\n!https://example.com/image.jpg|title=\"img title\",alt=\"\"!\n",
+            r#"
+!https://example.com/image.jpg|title="img title",alt=""!
+"#,
             String::from_utf8(output).unwrap()
         );
     }
