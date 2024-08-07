@@ -3,7 +3,7 @@ use pulldown_cmark::{Options, Parser as MarkdownParser};
 /// The renderer is responsible for converting events from pulldown-cmark into markup
 mod atlassian;
 
-use clap::{ArgEnum, ArgGroup, Parser};
+use clap::{ArgGroup, Parser, ValueEnum};
 
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::Command;
@@ -29,12 +29,12 @@ struct Cli {
     /// Add N to header level (can be negative)
     #[clap(default_value_t = 0, short, long)]
     modify_headers: i8,
-    #[clap(default_value_t = Language::Confluence, short, long, arg_enum)]
+    #[clap(default_value_t = Language::Confluence, short, long, value_enum)]
     language: Language,
 }
 
 /// Atlassian flavor. Due to differences in rendering codeblocks. View #8
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum Language {
     Jira,
     Confluence,
