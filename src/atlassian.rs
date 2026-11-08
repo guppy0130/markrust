@@ -278,7 +278,7 @@ where
                     self.write_escaped(str_text)?;
                     self.parse_html(n.next_sibling())
                 }
-                Node::Fragment => return self.parse_html(n.first_child()),
+                Node::Fragment => self.parse_html(n.first_child()),
                 // we don't care about comments, because those shouldn't make it to the output
                 // we won't have a document, because we're generating/parsing fragments only
                 _ => Ok(()),
@@ -404,8 +404,8 @@ where
                         .unwrap_or(&default)
                         .clone();
                     match self.flavor {
-                        'j' => self.write(&format!(":{}", &lang))?,
-                        'c' => self.write(&format!(":language={}", &lang))?,
+                        'j' => self.write(&format!(":{}", lang))?,
+                        'c' => self.write(&format!(":language={}", lang))?,
                         // panic if we don't know which flavor
                         _ => panic!("Unknown atlassian markup flavor"),
                     }
